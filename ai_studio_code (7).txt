@@ -1,0 +1,149 @@
+import React, { useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+
+interface Room {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export const TeacherDashboard: React.FC<{ teacherId: string }> = ({ teacherId }) => {
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [newRoomName, setNewRoomName] = useState('');
+  
+  // State untuk form poin
+  const [studentId, setStudentId] = useState('');
+  const [deltaPoints, setDeltaPoints] = useState<number>(0);
+  const [reason, setReason] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+
+  const handleCreateRoom = async () => {
+    if (rooms.length >= 5) {
+      alert('Kapasitas maksimal 5 room/kelas telah tercapai.');
+      return;
+    }
+
+    const res = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId, roomName: newRoomName })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setRooms([...rooms, data.room]);
+      setNewRoomName('');
+    } else {
+      alert(data.error);
+    }
+  };
+
+  const handleApplyPoints = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/points', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, teacherId, deltaPoints, reason })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setStatusMessage(data.alertTriggered ? 'Poin diperbarui. Peringatan penurunan drastis dikirim!' : 'Poin berhasil dicatat.');
+      setReason('');
+      setDeltaPoints(0);
+    } else {
+      alert(data.error);
+    }
+  };
+
+  return (
+    <div className="p-8 bg-kirana-cream-50 min-h-screen text-kirana-brown-900 font-sans">
+      <header className="mb-8">
+        <h1 className="text-3xl font-extrabold text-kirana-brown-800">Panel Manajemen Guru BK</h1>
+        <p className="text-kirana-brown-700">Platform Konseling KIRANA</p>
+      </header>
+
+      {/* Bagian Manajemen Room & QR Code */}
+      <section className="bg-kirana-cream-200 border border-kirana-cream-300 p-6 rounded-2xl mb-8">
+        <h2 className="text-xl font-bold text-kirana-brown-800 mb-4">Ruang Kelas & QR Code (Maks. 5)</h2>
+        <div className="flex gap-4 mb-6">
+          <input
+            type="text"
+            placeholder="Nama Kelas (Contoh: XII MIPA 1)"
+            value={newRoomName}
+            onChange={(e) => setNewRoomName(e.target.value)}
+            className="px-4 py-2 rounded-xl bg-kirana-cream-50 border border-kirana-brown-300 focus:outline-none focus:ring-2 focus:ring-kirana-brown-700 flex-1"
+          />
+          <button
+            onClick={handleCreateRoom}
+            className="bg-kirana-brown-700 hover:bg-kirana-brown-800 text-kirana-cream-50 px-6 py-2 rounded-xl font-medium transition"
+          >
+            Buat Ruang
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {rooms.map((room) => {
+            const joinUrl = `${window.location.origin}/join/${room.code}`;
+            return (
+              <div key={room.id} className="bg-kirana-cream-50 p-5 rounded-xl border border-kirana-cream-300 shadow-sm flex flex-col items-center">
+                <h3 className="font-bold text-lg text-kirana-brown-800 mb-2">{room.name}</h3>
+                <QRCodeSVG value={joinUrl} size={130} />
+                <span className="text-xs text-kirana-brown-500 font-mono mt-3">KODE: {room.code}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(joinUrl)}
+                  className="mt-3 text-xs bg-kirana-cream-200 hover:bg-kirana-cream-300 text-kirana-brown-800 px-3 py-1.5 rounded-lg border border-kirana-brown-300 transition"
+                >
+                  Salin Tautan Gabung
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Bagian Otoritas & Pengelolaan Poin */}
+      <section className="bg-kirana-cream-200 border border-kirana-cream-300 p-6 rounded-2xl max-w-2xl">
+        <h2 className="text-xl font-bold text-kirana-brown-800 mb-4">Otoritas Poin Siswa</h2>
+        {statusMessage && <div className="mb-4 p-3 bg-kirana-cream-100 border border-kirana-brown-500 text-kirana-brown-900 rounded-xl text-sm">{statusMessage}</div>}
+        <form onSubmit={handleApplyPoints} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold mb-1">ID Siswa</label>
+            <input
+              type="text"
+              value={studentId}
+              onChange={(e) => setStudentId(e.target.value)}
+              className="w-full px-4 py-2 rounded-xl bg-kirana-cream-50 border border-kirana-brown-300 text-kirana-brown-900"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">Perubahan Poin (+ untuk prestasi, - untuk pelanggaran)</label>
+            <input
+              type="number"
+              value={deltaPoints}
+              onChange={(e) => setDeltaPoints(parseInt(e.target.value))}
+              className="w-full px-4 py-2 rounded-xl bg-kirana-cream-50 border border-kirana-brown-300 text-kirana-brown-900"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">Alasan Tertulis (Wajib Diisi)</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="Jelaskan alasan penaikan atau penurunan poin..."
+              className="w-full px-4 py-2 rounded-xl bg-kirana-cream-50 border border-kirana-brown-300 text-kirana-brown-900"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-kirana-brown-700 hover:bg-kirana-brown-800 text-kirana-cream-50 font-bold py-2.5 rounded-xl transition shadow"
+          >
+            Simpan Perubahan Poin
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+};
