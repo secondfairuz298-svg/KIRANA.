@@ -1,0 +1,3 @@
+DATABASE_URL="postgresql://user:password@localhost:5432/kirana_db?schema=public"
+PORT=5000
+APP_FRONTEND_URL="http://localhost:3000"
