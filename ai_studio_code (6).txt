@@ -1,0 +1,157 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Socket } from 'socket.io-client';
+
+interface MeetingCallProps {
+  socket: Socket;
+  userId: string;
+  targetId?: string;
+  isHost?: boolean;
+}
+
+export const MeetingCall: React.FC<MeetingCallProps> = ({ socket, userId, targetId }) => {
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [callActive, setCallActive] = useState<boolean>(false);
+  const [micActive, setMicActive] = useState<boolean>(true);
+  const [cameraActive, setCameraActive] = useState<boolean>(true);
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const peerConnection = useRef<RTCPeerConnection | null>(null);
+
+  const iceServers = {
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  };
+
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((mediaStream) => {
+      setStream(mediaStream);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = mediaStream;
+      }
+    });
+
+    socket.on('incoming-call', async (data) => {
+      setCallActive(true);
+      peerConnection.current = new RTCPeerConnection(iceServers);
+      
+      stream?.getTracks().forEach((track) => peerConnection.current?.addTrack(track, stream));
+
+      peerConnection.current.ontrack = (event) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+      };
+
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.signal));
+      const answer = await peerConnection.current.createAnswer();
+      await peerConnection.current.setLocalDescription(answer);
+
+      socket.emit('answer-call', { to: data.from, signal: answer });
+    });
+
+    socket.on('call-accepted', async (signal) => {
+      await peerConnection.current?.setRemoteDescription(new RTCSessionDescription(signal));
+    });
+
+    return () => {
+      stream?.getTracks().forEach(track => track.stop());
+    };
+  }, [socket, stream]);
+
+  const initiateCall = async () => {
+    if (!targetId) return;
+    setCallActive(true);
+    peerConnection.current = new RTCPeerConnection(iceServers);
+
+    stream?.getTracks().forEach((track) => peerConnection.current?.addTrack(track, stream));
+
+    peerConnection.current.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
+
+    peerConnection.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('call-user', {
+          userToCall: targetId,
+          signalData: peerConnection.current?.localDescription,
+          from: userId,
+          isVideo: true
+        });
+      }
+    };
+
+    const offer = await peerConnection.current.createOffer();
+    await peerConnection.current.setLocalDescription(offer);
+  };
+
+  const toggleMic = () => {
+    if (stream) {
+      stream.getAudioTracks()[0].enabled = !micActive;
+      setMicActive(!micActive);
+    }
+  };
+
+  const toggleCamera = () => {
+    if (stream) {
+      stream.getVideoTracks()[0].enabled = !cameraActive;
+      setCameraActive(!cameraActive);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center bg-kirana-cream-50 p-6 rounded-2xl shadow-md border border-kirana-cream-300">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
+        <div className="relative rounded-xl overflow-hidden bg-kirana-brown-900 border-2 border-kirana-brown-500 shadow-inner">
+          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-64 object-cover" />
+          <span className="absolute bottom-2 left-2 bg-kirana-brown-800 text-kirana-cream-50 text-xs px-2 py-1 rounded">
+            Anda
+          </span>
+        </div>
+        <div className="relative rounded-xl overflow-hidden bg-kirana-brown-900 border-2 border-kirana-brown-300 shadow-inner">
+          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-64 object-cover" />
+          <span className="absolute bottom-2 left-2 bg-kirana-brown-800 text-kirana-cream-50 text-xs px-2 py-1 rounded">
+            Lawan Bicara
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-4 mt-6">
+        {!callActive ? (
+          <button
+            onClick={initiateCall}
+            className="px-6 py-2.5 bg-kirana-brown-700 hover:bg-kirana-brown-800 text-kirana-cream-50 font-medium rounded-xl shadow transition"
+          >
+            Mulai Panggilan
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={toggleMic}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                micActive ? 'bg-kirana-cream-200 text-kirana-brown-900' : 'bg-red-600 text-white'
+              }`}
+            >
+              {micActive ? 'Matikan Mikrofon' : 'Nyalakan Mikrofon'}
+            </button>
+            <button
+              onClick={toggleCamera}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                cameraActive ? 'bg-kirana-cream-200 text-kirana-brown-900' : 'bg-red-600 text-white'
+              }`}
+            >
+              {cameraActive ? 'Matikan Kamera' : 'Nyalakan Kamera'}
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-2 bg-red-700 hover:bg-red-800 text-white font-medium rounded-xl transition"
+            >
+              Akhiri
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
